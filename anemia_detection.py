@@ -37,7 +37,7 @@ def load_model():
         nn.Linear(128, 2)
     )
 
-    checkpoint_path = "best_fold3.pth"
+    checkpoint_path = "best_fold1.pth"
     state_dict = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(state_dict)
 
@@ -284,7 +284,7 @@ class ConjunctivaProcessor(VideoTransformerBase):
 # -----------------------
 # 13. Streamlit 페이지 구성
 # -----------------------
-st.title("📸 결막 사진으로 빈혈 예측 앱")
+st.title("결막 사진으로 빈혈 예측 앱")
 
 st.markdown(
     """
