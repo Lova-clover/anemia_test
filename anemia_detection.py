@@ -131,7 +131,7 @@ def draw_bezier_frame(cv_img: np.ndarray) -> np.ndarray:
 # -----------------------
 # 9. Bézier 프레임 내부만 추출하고 외부를 흰색으로 마스킹
 # -----------------------
-def extract_and_mask_bezier_region(img_bgr: np.ndarray) -> np.ndarray:
+def extract_and_mask_bezier_region(img_bgr: np.ndarray) -> Image.Image:
     # 이미지를 받아서 프레임 내부 영역만 추출하고, 외부를 흰색으로 마스킹합니다. (학습 모델의 특성 때문에)
     h, w, _ = img_bgr.shape
     left, upper, right, lower = get_conjunctiva_bezier_bbox((w, h))
@@ -164,7 +164,7 @@ def extract_and_mask_bezier_region(img_bgr: np.ndarray) -> np.ndarray:
 
     # 마스크된 부분만 원본 이미지, 나머지는 흰색
     combined_img_bgr = np.where(mask[..., None] == 255, img_bgr, white_bg)
-
+    
     # 마스킹된 이미지의 Bézier 프레임 영역의 바운딩 박스를 기준으로 크롭
     # 모델 입력 시 이미지 크기를 줄이기 위함
     cropped_final_bgr = combined_img_bgr[upper:lower, left:right]
