@@ -1,5 +1,3 @@
-# file: anemia_app_with_improved_iris_sclera.py
-
 import streamlit as st
 import cv2
 import numpy as np
@@ -66,15 +64,20 @@ val_transform = T.Compose([
 eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
 
 # -----------------------
-# 6. Bézier frame 좌표 계산 (크기 조절 가능)
-#    → 원래 frame_width_ratio=0.15, frame_height_ratio=0.05였으나,
-#       초록색 프레임을 더 작게 만들기 위해 조정.
+# 6. Bézier frame 좌표 계산 (휴대폰 기준으로 작게 크기를 조절하였다)
 # -----------------------
 def get_conjunctiva_bezier_bbox(image_size):
+    # --- 이 부분을 조절하여 모바일 환경에 맞게 프레임 크기를 조정하였다. ---
+    # frame_width_ratio: 프레임의 가로 폭 비율 (전체 너비 대비)
+    # frame_height_ratio: 프레임의 세로 폭 비율 (전체 높이 대비)
+    # center_x_ratio: 프레임 중앙의 가로 위치 (전체 너비 대비)
+    # center_y_ratio: 프레임 중앙의 세로 위치 (전체 높이 대비)
+    
     w, h = image_size
-    # 모바일 환경 고려: 프레임을 더 작게 잡고, 약간 위로 이동
-    frame_width_ratio = 0.10   # 기존 0.15 → 0.10으로 줄임
-    frame_height_ratio = 0.03  # 기존 0.05 → 0.03으로 줄임
+    
+    frame_width_ratio = 0.10   
+    frame_height_ratio = 0.03  
+    
     center_x_ratio = 0.5
     center_y_ratio = 0.55
 
@@ -103,6 +106,7 @@ def cubic_bezier_points(p0, p1, p2, p3, n=200):
 def draw_bezier_frame(cv_img: np.ndarray) -> np.ndarray:
     h, w, _ = cv_img.shape
     left, upper, right, lower = get_conjunctiva_bezier_bbox((w, h))
+    
     frame_w = max(1, right - left)
     frame_h = max(1, lower - upper)
 
@@ -128,8 +132,11 @@ def draw_bezier_frame(cv_img: np.ndarray) -> np.ndarray:
 # 9. Bézier 프레임 내부만 추출하고 외부를 흰색으로 마스킹
 # -----------------------
 def extract_and_mask_bezier_region(img_bgr: np.ndarray) -> np.ndarray:
+    # 이미지를 받아서 프레임 내부 영역만 추출하고, 외부를 흰색으로 마스킹합니다. (학습 모델의 특성 때문에)
     h, w, _ = img_bgr.shape
     left, upper, right, lower = get_conjunctiva_bezier_bbox((w, h))
+    
+    # 프레임의 폭과 높이가 0이 되지 않도록 최소값 설정
     frame_w = max(1, right - left)
     frame_h = max(1, lower - upper)
 
@@ -148,23 +155,26 @@ def extract_and_mask_bezier_region(img_bgr: np.ndarray) -> np.ndarray:
 
     polygon = np.array(top_curve + bottom_curve, dtype=np.int32)
 
-    # 흰색 배경
+    # 흰 배경 이미지 생성
     white_bg = np.ones_like(img_bgr) * 255
 
-    # 마스크 생성(프레임 내부=255)
+    # 마스크 생성 (Bézier 프레임 내부를 255로 채움)
     mask = np.zeros((h, w), dtype=np.uint8)
     cv2.fillPoly(mask, [polygon], 255)
 
-    # 마스크 내부는 원본, 외부는 흰색
-    combined = np.where(mask[..., None] == 255, img_bgr, white_bg)
+    # 마스크된 부분만 원본 이미지, 나머지는 흰색
+    combined_img_bgr = np.where(mask[..., None] == 255, img_bgr, white_bg)
 
-    # bounding box 기준으로 크롭
-    cropped = combined[upper:lower, left:right]
-    if cropped.shape[0] == 0 or cropped.shape[1] == 0:
-        # 너무 작으면 흰색 반환
-        return np.ones((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8) * 255
+    # 마스킹된 이미지의 Bézier 프레임 영역의 바운딩 박스를 기준으로 크롭
+    # 모델 입력 시 이미지 크기를 줄이기 위함
+    cropped_final_bgr = combined_img_bgr[upper:lower, left:right]
 
-    return cropped
+    if cropped_final_bgr.shape[0] == 0 or cropped_final_bgr.shape[1] == 0:
+        st.warning("경고: Bézier 프레임 영역이 너무 작거나 유효하지 않아 이미지를 크롭할 수 없습니다. 흰색 배경으로 대체합니다.")
+        return Image.fromarray(np.ones((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8) * 255)
+
+    # OpenCV BGR -> PIL RGB 변환
+    return Image.fromarray(cv2.cvtColor(cropped_final_bgr, cv2.COLOR_BGR2RGB))
 
 # -----------------------
 # 10. 눈 영역(ROI) 검출 후 홍채(iris) 검출
@@ -277,27 +287,34 @@ class ConjunctivaProcessor(VideoTransformerBase):
 # -----------------------
 # 13. Streamlit 페이지 구성
 # -----------------------
-st.title("📸 결막 사진으로 빈혈 예측 앱 (공막 밝기 보정 개선판)")
+st.title("📸 결막 사진으로 빈혈 예측 앱")
 
 st.markdown(
     """
-    **이 앱은 Bézier 프레임 안의 결막을 잘라낸 뒤, 눈(Haar Cascade → Hough Circle)으로 홍채를 찾고  
+    **이 앱은 Bézier 프레임 안의 결막을 잘라낸 뒤, 눈으로 홍채를 찾고  
     공막 밝기를 계산하여 밝기 정규화 후 ResNet18 모델로 빈혈 여부를 예측합니다.**
 
     **사용법:**
-    1. “Start camera” 버튼을 눌러 카메라를 켜세요.  
-    2. 초록색 Bézier 프레임 안에 눈(결막)을 잘 맞춘 뒤,  
-    3. “사진 찍기 & 예측” 버튼을 누르면 자동으로 보정 후 예측 결과를 보여줍니다.
+    1. 아래 'Start camera' 버튼을 눌러 카메라를 켜세요.
+    2. 카메라 피드에 나타나는 **초록색 프레임 안에 결막 부분을 맞춰주세요.**
+    3. '사진 찍기 & 예측' 버튼을 눌러 촬영하면, 프레임 안의 영역만 추출하여 예측합니다.
     """
 )
 
+# 13.1. webrtc_streamer 설정 (카메라 해상도 최대로 요청)
 webrtc_ctx = webrtc_streamer(
     key="conjunctiva_capture_stream",
     mode=WebRtcMode.SENDRECV,
-    rtc_configuration={"iceServers":[{"urls":["stun:stun.l.google.com:19302"]}]},
+    rtc_configuration={
+        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+    },
     video_processor_factory=ConjunctivaProcessor,
     media_stream_constraints={
-        "video": {"width":{"ideal":1280}, "height":{"ideal":720}, "frameRate":{"ideal":30}},
+        "video": {
+            "width": {"ideal": 1920}, # Full HD
+            "height": {"ideal": 1080},
+            "frameRate": {"ideal": 30},
+        },
         "audio": False,
     },
     async_processing=True,
@@ -385,18 +402,18 @@ if webrtc_ctx.video_processor:
             cv2.polylines(vis_rgb, [polygon_pts], isClosed=True, color=(0, 255, 0), thickness=2)
 
             # (8) 결과 출력
-            st.subheader("📷 촬영 직후: 홍채 / 공막 / 결막 ROI 시각화")
+            st.subheader("촬영 직후: 홍채 / 공막 / 결막 ROI 시각화")
             st.image(vis_rgb, use_container_width=True)
 
-            st.subheader("🔍 모델 입력용 결막 이미지 (밝기 보정 후)")
+            st.subheader("모델 입력용 결막 이미지 (밝기 보정 후)")
             st.image(pil_input, use_container_width=True)
 
-            st.subheader("🩸 예측 결과")
+            st.subheader("예측 결과")
             st.write(f"- **진단:** {diagnosis}")
             st.write(f"- **신뢰도:** {confidence:.4f}")
             st.progress(confidence)
 
             if confidence < 0.65:
-                st.info("🤔 모델 확신도가 낮습니다. 조명·화질을 개선하고 재촬영해 보세요.")
+                st.info("모델 확신도가 낮습니다. 조명·화질을 개선하고 재촬영해 보세요.")
 else:
     st.info("카메라를 켜려면 위 ‘Start camera’ 버튼을 눌러주세요.")
