@@ -1,5 +1,4 @@
 # file: anemia_app_with_improved_iris_sclera.py
-
 import streamlit as st
 import cv2
 import numpy as np
@@ -209,12 +208,12 @@ def detect_iris_circle(gray_img, eye_rect=None):
     circles = cv2.HoughCircles(
         blurred,
         cv2.HOUGH_GRADIENT,
-        dp=1.3,                            # 누격 비율: 화면이 작을 때 더 작은 원도 감지
-        minDist=rows / 5,                 # 같은 원이 여러 번 감지되지 않도록 거리 제한을 조금 더 짧게
-        param1=60,                        # Canny 에지의 upper threshold (조금 낮춰 어두운 경계도 포착)
-        param2=18,                        # accumulator threshold: 더 낮춰 작은 원도 잡히게 함
-        minRadius=int(rows * 0.08),       # 최소 동공 크기 (ROI 높이의 8%)
-        maxRadius=int(rows * 0.22)        # 최대 동공 크기 (ROI 높이의 22%)
+        dp=1.2,                           # 누격 비율: 1.2로 약간 높여 작은 원도 감지
+        minDist=rows / 4,                # 같은 원이 여러 번 감지되지 않도록 거리 제한
+        param1=50,                       # Canny 에지의 upper threshold
+        param2=20,                       # accumulator threshold: 낮출수록 더 많은 원 감지
+        minRadius=int(rows * 0.10),      # 최소 동공 크기 (ROI 높이의 10%)
+        maxRadius=int(rows * 0.25)       # 최대 동공 크기 (ROI 높이의 25%)
     )
     if circles is None:
         return None, None
