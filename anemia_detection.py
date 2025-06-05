@@ -131,7 +131,7 @@ def draw_bezier_frame(cv_img: np.ndarray) -> np.ndarray:
 # -----------------------
 # 9. Bézier 프레임 내부만 추출하고 외부를 흰색으로 마스킹
 # -----------------------
-def extract_and_mask_bezier_region(img_bgr: np.ndarray) -> Image.Image:
+def extract_and_mask_bezier_region(img_bgr: np.ndarray) -> np.ndarray:
     # 이미지를 받아서 프레임 내부 영역만 추출하고, 외부를 흰색으로 마스킹합니다. (학습 모델의 특성 때문에)
     h, w, _ = img_bgr.shape
     left, upper, right, lower = get_conjunctiva_bezier_bbox((w, h))
@@ -163,18 +163,15 @@ def extract_and_mask_bezier_region(img_bgr: np.ndarray) -> Image.Image:
     cv2.fillPoly(mask, [polygon], 255)
 
     # 마스크된 부분만 원본 이미지, 나머지는 흰색
-    combined_img_bgr = np.where(mask[..., None] == 255, img_bgr, white_bg)
-    
-    # 마스킹된 이미지의 Bézier 프레임 영역의 바운딩 박스를 기준으로 크롭
-    # 모델 입력 시 이미지 크기를 줄이기 위함
-    cropped_final_bgr = combined_img_bgr[upper:lower, left:right]
+    combined = np.where(mask[..., None] == 255, img_bgr, white_bg)
 
-    if cropped_final_bgr.shape[0] == 0 or cropped_final_bgr.shape[1] == 0:
-        st.warning("경고: Bézier 프레임 영역이 너무 작거나 유효하지 않아 이미지를 크롭할 수 없습니다. 흰색 배경으로 대체합니다.")
-        return Image.fromarray(np.ones((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8) * 255)
+    # bounding box 기준으로 크롭
+    cropped = combined[upper:lower, left:right]
+    if cropped.shape[0] == 0 or cropped.shape[1] == 0:
+        # 너무 작으면 흰색 반환
+        return np.ones((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8) * 255
 
-    # OpenCV BGR -> PIL RGB 변환
-    return Image.fromarray(cv2.cvtColor(cropped_final_bgr, cv2.COLOR_BGR2RGB))
+    return cropped
 
 # -----------------------
 # 10. 눈 영역(ROI) 검출 후 홍채(iris) 검출
@@ -329,22 +326,19 @@ if webrtc_ctx.video_processor:
         if captured_bgr is None:
             st.warning("카메라 프레임이 아직 준비되지 않았습니다. 잠시 기다려주세요.")
         else:
-            # (1) Bézier 프레임 내부 추출 + 마스킹 → [PIL.Image] 반환
-            processed_pil_image = extract_and_mask_bezier_region(captured_bgr)
+            # (1) Bézier 프레임 영역만 추출(마스킹+크롭) → BGR numpy
+            cropped_bgr = extract_and_mask_bezier_region(captured_bgr)
 
-            # (2) 공막 밝기 계산을 위해 다시 NumPy BGR 배열로 변환
-            #     PIL → NumPy (RGB) → BGR 순서로 변경
-            cropped_bgr = cv2.cvtColor(np.array(processed_pil_image), cv2.COLOR_RGB2BGR)
-
-            # (3) 눈 검출 → 홍채 검출
+            # (2) 눈 영역(ROI) 검출 → 홍채(Hough Circle) 검출
             gray_full = cv2.cvtColor(captured_bgr, cv2.COLOR_BGR2GRAY)
             eye_rect = detect_eye_region(gray_full)
 
             iris_mask, iris_info = detect_iris_circle(gray_full, eye_rect)
+            # iris_info가 None이면 전체 이미지에서 재시도
             if iris_info is None:
                 iris_mask, iris_info = detect_iris_circle(gray_full, None)
 
-            # (4) 공막 마스크 생성 → 공막 밝기 계산
+            # (3) 공막 마스크 생성 → 공막 밝기 계산
             sclera_mask, sclera_info = generate_sclera_mask_by_rule(
                 gray_full.shape,
                 iris_info[:2] if iris_info else None,
@@ -352,7 +346,7 @@ if webrtc_ctx.video_processor:
             )
             sclera_brightness = compute_sclera_brightness(gray_full, sclera_mask)
 
-            # (5) 밝기 정규화: NumPy BGR 배열에 대해 처리
+            # (4) 밝기 정규화: cropped_bgr을 공막 평균 밝기 기준으로 스케일링
             if iris_info is not None and sclera_brightness > 0:
                 target_brightness = 128.0
                 alpha = target_brightness / (sclera_brightness + 1e-6)
@@ -361,11 +355,11 @@ if webrtc_ctx.video_processor:
             else:
                 cropped_float = cropped_bgr.copy()
 
-            # (6) 밝기 보정이 끝난 NumPy BGR → RGB → PIL.Image로 변환
+            # (5) RGB 순서로 변환하여 PIL.Image 생성
             cropped_rgb = cv2.cvtColor(cropped_float, cv2.COLOR_BGR2RGB)
             pil_input = Image.fromarray(cropped_rgb)
 
-            # (7) ResNet18 예측
+            # (6) ResNet18 예측
             input_tensor = val_transform(pil_input).unsqueeze(0).to(device)
             with torch.no_grad():
                 logits = model(input_tensor)
@@ -374,7 +368,40 @@ if webrtc_ctx.video_processor:
                 confidence = float(probs.max().item())
             diagnosis = label_map[pred_label]
 
-            # (8) 결과 시각화
+            # (7) 시각화를 위해 윤곽선 그리기
+            vis = captured_bgr.copy()
+            vis_rgb = cv2.cvtColor(vis, cv2.COLOR_BGR2RGB)
+
+            # 홍채 원 (빨간색)
+            if iris_info:
+                ix, iy, ir = iris_info
+                cv2.circle(vis_rgb, (ix, iy), ir, (255, 0, 0), 2)
+
+            # 공막 원 (노란색)
+            scx, scy, scr = sclera_info
+            if (scx, scy, scr) != (0, 0, 0):
+                cv2.circle(vis_rgb, (scx, scy), scr, (255, 255, 0), 2)
+
+            # Bézier 결막 윤곽 (녹색)
+            h, w, _ = captured_bgr.shape
+            left, upper, right, lower = get_conjunctiva_bezier_bbox((w, h))
+            polygon_pts = np.array(
+                cubic_bezier_points((left, upper),
+                                   (left + int((right-left)*0.25), upper + int((lower-upper)*0.4)),
+                                   (right - int((right-left)*0.25), upper + int((lower-upper)*0.4)),
+                                   (right, upper), n=200)
+                + cubic_bezier_points((right, upper),
+                                      (right + int((right-left)*0.1), lower + int((lower-upper)*0.05)),
+                                      (left - int((right-left)*0.1), lower + int((lower-upper)*0.05)),
+                                      (left, upper), n=200),
+                dtype=np.int32
+            )
+            cv2.polylines(vis_rgb, [polygon_pts], isClosed=True, color=(0, 255, 0), thickness=2)
+
+            # (8) 결과 출력
+            st.subheader("촬영 직후: 홍채 / 공막 / 결막 ROI 시각화")
+            st.image(vis_rgb, use_container_width=True)
+
             st.subheader("모델 입력용 결막 이미지 (밝기 보정 후)")
             st.image(pil_input, use_container_width=True)
 
