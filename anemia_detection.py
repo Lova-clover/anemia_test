@@ -37,7 +37,7 @@ def load_model():
         nn.Linear(128, 2)
     )
 
-    checkpoint_path = "best_fold1.pth"
+    checkpoint_path = "best_fold3.pth"
     state_dict = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(state_dict)
 
@@ -288,7 +288,7 @@ st.title("결막 사진으로 빈혈 예측 앱")
 
 st.markdown(
     """
-    **이 앱은 Bézier 프레임 안의 결막을 잘라낸 뒤, 눈으로 홍채를 찾고  
+    **이 앱은 프레임 안의 결막을 잘라낸 뒤, 눈으로 홍채를 찾고  
     공막 밝기를 계산하여 밝기 정규화 후 ResNet18 모델로 빈혈 여부를 예측합니다.**
 
     **사용법:**
