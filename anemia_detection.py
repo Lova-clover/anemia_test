@@ -1,4 +1,5 @@
 # file: anemia_app_with_improved_iris_sclera.py
+
 import streamlit as st
 import cv2
 import numpy as np
@@ -66,12 +67,14 @@ eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml
 
 # -----------------------
 # 6. Bézier frame 좌표 계산 (크기 조절 가능)
+#    → 원래 frame_width_ratio=0.15, frame_height_ratio=0.05였으나,
+#       초록색 프레임을 더 작게 만들기 위해 조정.
 # -----------------------
 def get_conjunctiva_bezier_bbox(image_size):
     w, h = image_size
-    # 모바일 환경 고려: 프레임을 작게 잡고, 약간 위로 이동
-    frame_width_ratio = 0.15
-    frame_height_ratio = 0.05
+    # 모바일 환경 고려: 프레임을 더 작게 잡고, 약간 위로 이동
+    frame_width_ratio = 0.10   # 기존 0.15 → 0.10으로 줄임
+    frame_height_ratio = 0.03  # 기존 0.05 → 0.03으로 줄임
     center_x_ratio = 0.5
     center_y_ratio = 0.55
 
@@ -208,12 +211,12 @@ def detect_iris_circle(gray_img, eye_rect=None):
     circles = cv2.HoughCircles(
         blurred,
         cv2.HOUGH_GRADIENT,
-        dp=1.2,                           # 누격 비율: 1.2로 약간 높여 작은 원도 감지
-        minDist=rows / 4,                # 같은 원이 여러 번 감지되지 않도록 거리 제한
-        param1=50,                       # Canny 에지의 upper threshold
-        param2=20,                       # accumulator threshold: 낮출수록 더 많은 원 감지
-        minRadius=int(rows * 0.10),      # 최소 동공 크기 (ROI 높이의 10%)
-        maxRadius=int(rows * 0.25)       # 최대 동공 크기 (ROI 높이의 25%)
+        dp=1.2,                            # 누격 비율: 1.2로 약간 높여 작은 원도 감지
+        minDist=rows / 4,                 # 같은 원이 여러 번 감지되지 않도록 거리 제한
+        param1=50,                        # Canny 에지의 upper threshold
+        param2=20,                        # accumulator threshold: 낮출수록 더 많은 원 감지
+        minRadius=int(rows * 0.10),       # 최소 동공 크기 (ROI 높이의 10%)
+        maxRadius=int(rows * 0.25)        # 최대 동공 크기 (ROI 높이의 25%)
     )
     if circles is None:
         return None, None
