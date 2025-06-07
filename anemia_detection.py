@@ -23,7 +23,7 @@ label_map = {0: "Anemia", 1: "Non-Anemia"}
 # -----------------------
 @st.cache_resource
 def load_model():
-    # 1) 기본 ResNet18 + 커스텀 FC 정의
+    # (1) 기본 모델 구조 정의
     model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
     for name, param in model.named_parameters():
         if not (name.startswith("layer3") or name.startswith("layer4") or name.startswith("fc")):
@@ -39,18 +39,14 @@ def load_model():
     )
     model = model.to(device)
 
-    # 2) 체크포인트 로드
+    # (2) 체크포인트 로드
     ckpt = torch.load("best_fold3.pth", map_location=device)
-    # 저장할 때 {'state_dict': ...} 형태였다면 내부에서 꺼내고, 아니면 그대로 사용
     sd = ckpt.get("state_dict", ckpt)
 
-    # 3) DataParallel 일 때 생기는 'module.' 프리픽스 제거
-    new_sd = {}
-    for k, v in sd.items():
-        new_key = k.replace("module.", "")
-        new_sd[new_key] = v
+    # (3) DataParallel 프리픽스 제거
+    new_sd = {k.replace("module.", ""): v for k, v in sd.items()}
 
-    # 4) strict=False 로딩하여 누락·초과 키 확인
+    # (4) strict=False 로드
     missing, unexpected = model.load_state_dict(new_sd, strict=False)
     print(f"[load_model] missing keys: {missing}")
     print(f"[load_model] unexpected keys: {unexpected}")
@@ -58,6 +54,8 @@ def load_model():
     model.eval()
     return model
 
+# **여기**에서 반드시 한 번만 호출해서 전역변수에 할당
+model = load_model()
 
 # -----------------------
 # 4. 전처리 정의
