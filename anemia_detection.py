@@ -23,7 +23,6 @@ label_map = {0: "Anemia", 1: "Non-Anemia"}
 # -----------------------
 @st.cache_resource
 def load_model():
-    # 1) 원본 모델 정의
     model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
     for name, param in model.named_parameters():
         if not (name.startswith("layer3") or name.startswith("layer4") or name.startswith("fc")):
@@ -37,27 +36,16 @@ def load_model():
         nn.Dropout(0.3),
         nn.Linear(128, 2)
     )
+
+    checkpoint_path = "best_fold3.pth"
+    state_dict = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(state_dict)
+
     model = model.to(device)
-
-    # 2) 체크포인트 로드
-    ckpt = torch.load("best_fusion_fold3.pth", map_location=device)
-    # 만약 {'state_dict': ...} 로 저장했다면
-    state_dict = ckpt.get("state_dict", ckpt)
-
-    # 3) 'module.' 프리픽스 제거
-    new_state = {}
-    for k, v in state_dict.items():
-        nk = k.replace("module.", "")  # DataParallel prefix 제거
-        new_state[nk] = v
-
-    # 4) strict=False로 로드해서 누락/초과 키 확인
-    missing, unexpected = model.load_state_dict(new_state, strict=False)
-    print(f"[load_model] missing keys: {missing}")
-    print(f"[load_model] unexpected keys: {unexpected}")
-
     model.eval()
     return model
 
+model = load_model()
 
 # -----------------------
 # 4. 전처리 정의
