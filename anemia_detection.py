@@ -308,19 +308,7 @@ st.markdown(
     """
 )
 
-# -----------------------
-# 13.1. 카메라 선택 UI 추가
-# -----------------------
-camera_option = st.radio(
-    "카메라 선택",
-    ("전면(Front)", "후면(Back)"),
-    index=1,  # 기본 후면
-    horizontal=True
-)
-# 선택값에 따라 facingMode 결정
-facing = "user" if camera_option.startswith("전면") else "environment"
-
-# webrtc_streamer 설정
+# 13.1. webrtc_streamer 설정 (카메라 해상도 최대로 요청)
 webrtc_ctx = webrtc_streamer(
     key="conjunctiva_capture_stream",
     mode=WebRtcMode.SENDRECV,
@@ -330,16 +318,14 @@ webrtc_ctx = webrtc_streamer(
     video_processor_factory=ConjunctivaProcessor,
     media_stream_constraints={
         "video": {
-            "width": {"ideal": 1920},
+            "width": {"ideal": 1920}, # Full HD
             "height": {"ideal": 1080},
             "frameRate": {"ideal": 30},
-            "facingMode": {"ideal": facing},
         },
         "audio": False,
     },
     async_processing=True,
 )
-
 
 # -----------------------
 # 14. “사진 찍기 & 예측” 버튼
