@@ -23,11 +23,13 @@ label_map = {0: "Anemia", 1: "Non-Anemia"}
 # -----------------------
 @st.cache_resource
 def load_model():
+    # 1) 기본 ResNet18 불러오기
     model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
     for name, param in model.named_parameters():
         if not (name.startswith("layer3") or name.startswith("layer4") or name.startswith("fc")):
             param.requires_grad = False
 
+    # 2) fc 레이어 재정의
     num_ftrs = model.fc.in_features
     model.fc = nn.Sequential(
         nn.Dropout(0.3),
@@ -37,15 +39,30 @@ def load_model():
         nn.Linear(128, 2)
     )
 
+    # 3) 체크포인트 로드
     checkpoint_path = "best_fold3.pth"
     state_dict = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(state_dict)
 
+    # 4) DataParallel 저장된 경우 'module.' prefix 제거
+    first_key = next(iter(state_dict))
+    if first_key.startswith("module."):
+        from collections import OrderedDict
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            new_key = k.replace("module.", "", 1)
+            new_state_dict[new_key] = v
+        state_dict = new_state_dict
+
+    # 5) strict=False 옵션으로 로드 (키 불일치 무시)
+    load_result = model.load_state_dict(state_dict, strict=False)
+    # 디버깅용 로그: 누락된 키와 예기치 않은 키 출력
+    st.write("⚙️ Load model result:", load_result)
+
+    # 6) 디바이스 배치 및 eval 모드
     model = model.to(device)
     model.eval()
     return model
 
-model = load_model()
 
 # -----------------------
 # 4. 전처리 정의
